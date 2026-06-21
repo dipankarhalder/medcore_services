@@ -25,7 +25,7 @@ All service endpoints are proxied through the NGINX API Gateway on port `8000`.
     "role": "admin"
   }
   ```
-  *(Roles can be: `super_admin`, `admin`, `account_manager`, `accountent`, `department_manager`, `receptionist`, `stuff`, `Doctor`, `staff`)*
+  *(Default seeded roles: `super_admin`, `admin`, `account_manager`, `accountant`, `department_manager`, `receptionist`, `staff`, `Doctor` - custom roles can also be created dynamically)*
 - **Response (201 Created - Bootstrap / Self Logged In)**:
   ```json
   {
@@ -149,7 +149,55 @@ All service endpoints are proxied through the NGINX API Gateway on port `8000`.
   }
   ```
 
-### 1.8 Service Health Check
+### 1.8 List Dynamic Roles
+- **Route**: `GET /api/v1/auth/roles/`
+- **Headers**:
+  - `Authorization: Bearer <token>`
+- **Response (200 OK)**:
+  ```json
+  {
+    "roles": [
+      {
+        "id": 1,
+        "name": "super_admin",
+        "display_name": "Super Admin",
+        "description": "System Super Administrator",
+        "created_at": "2026-06-21T11:01:40.316Z"
+      }
+    ]
+  }
+  ```
+
+### 1.9 Create Dynamic Role
+- **Route**: `POST /api/v1/auth/roles/create/`
+- **Headers**:
+  - `Content-Type: application/json`
+  - `Authorization: Bearer <token>` (Must be `super_admin` or `admin`)
+- **Request Payload**:
+  ```json
+  {
+    "name": "billing_specialist",
+    "display_name": "Billing Specialist",
+    "description": "Handles billing and invoicing records"
+  }
+  ```
+- **Response (201 Created)**:
+  ```json
+  {
+    "message": "Role created successfully.",
+    "role": {
+      "id": 9,
+      "name": "billing_specialist",
+      "display_name": "Billing Specialist",
+      "description": "Handles billing and invoicing records"
+    }
+  }
+  ```
+- **Response Errors**:
+  - `400 Bad Request`: `{"error": "name and display_name are required fields."}` or `{"error": "Role with name 'billing_specialist' already exists."}`
+  - `403 Forbidden`: `{"error": "Permission denied. Only Super Admins or Admins can manage roles."}`
+
+### 1.10 Service Health Check
 - **Route**: `GET /api/v1/auth/health/`
 - **Response (200 OK)**:
   ```json
