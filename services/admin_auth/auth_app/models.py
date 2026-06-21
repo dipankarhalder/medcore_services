@@ -1,18 +1,20 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+class Role(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    display_name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'auth_roles'
+
+    def __str__(self):
+        return self.display_name
+
 class User(AbstractUser):
-    ROLE_CHOICES = (
-        ('super_admin', 'Super Admin'),
-        ('admin', 'Admin'),
-        ('account_manager', 'Account Manager'),
-        ('accountant', 'Accountant'),
-        ('department_manager', 'Department Manager'),
-        ('receptionist', 'Receptionist'),
-        ('staff', 'Staff'),
-        ('Doctor', 'Doctor'),
-    )
-    role = models.CharField(max_length=50, choices=ROLE_CHOICES, default='staff')
+    role = models.ForeignKey(Role, on_delete=models.SET_NULL, null=True, related_name='users')
     phone_number = models.CharField(max_length=15, blank=True, null=True)
     is_phone_verified = models.BooleanField(default=False)
     is_email_verified = models.BooleanField(default=False)

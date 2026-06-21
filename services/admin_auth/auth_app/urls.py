@@ -8,6 +8,8 @@ urlpatterns = [
     path('sessions/', controllers.list_sessions, name='list_sessions'),
     path('sessions/logout-device/', controllers.logout_device, name='logout_device'),
     path('sessions/logout-all/', controllers.logout_all_devices, name='logout_all_devices'),
+    path('roles/', controllers.list_roles, name='list_roles'),
+    path('roles/create/', controllers.create_role, name='create_role'),
     path('forgot-password/', controllers.forgot_password, name='forgot_password'),
     path('health/', controllers.health_check, name='health_check'),
 ]

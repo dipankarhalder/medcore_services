@@ -5,7 +5,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.core.signing import TimestampSigner, BadSignature, SignatureExpired
 from functools import wraps
-from auth_app.models import User, UserSession
+from auth_app.models import User, UserSession, Role
 from auth_app.kafka_producer import publish_event
 
 signer = TimestampSigner()
@@ -55,12 +55,16 @@ def register(request):
     if db_empty:
         # First user is super admin and auto-verified
         try:
+            super_admin_role, _ = Role.objects.get_or_create(
+                name='super_admin',
+                defaults={'display_name': 'Super Admin', 'description': 'System Super Administrator'}
+            )
             user = User.objects.create_user(
                 username=username,
                 email=email,
                 password=password,
                 phone_number=phone_number,
-                role='super_admin',
+                role=super_admin_role,
                 is_email_verified=True,
                 is_phone_verified=True
             )
@@ -78,7 +82,7 @@ def register(request):
             publish_event('admin_auth_events', 'user_registered', {
                 'username': user.username,
                 'email': user.email,
-                'role': user.role
+                'role': 'super_admin'
             })
             
             return JsonResponse({
@@ -87,7 +91,7 @@ def register(request):
                     'id': user.id,
                     'username': user.username,
                     'email': user.email,
-                    'role': user.role
+                    'role': 'super_admin'
                 }
             }, status=201)
         except Exception as e:
@@ -106,10 +110,10 @@ def register(request):
     except Exception:
         return JsonResponse({'error': 'Invalid authorization token.'}, status=401)
         
-    if creator.role not in ['super_admin', 'admin']:
+    if not creator.role or creator.role.name not in ['super_admin', 'admin']:
         return JsonResponse({'error': 'Permission denied. Only Super Admins or Admins can register new users.'}, status=403)
         
-    if role == 'super_admin' and creator.role != 'super_admin':
+    if role == 'super_admin' and (not creator.role or creator.role.name != 'super_admin'):
         return JsonResponse({'error': 'Admins cannot create Super Admin users.'}, status=403)
         
     if User.objects.filter(username=username).exists():
@@ -119,17 +123,22 @@ def register(request):
         return JsonResponse({'error': 'Email is already registered.'}, status=400)
         
     try:
+        try:
+            role_obj = Role.objects.get(name=role)
+        except Role.DoesNotExist:
+            return JsonResponse({'error': f"Role '{role}' does not exist."}, status=400)
+
         user = User.objects.create_user(
             username=username,
             email=email,
             password=password,
             phone_number=phone_number,
-            role=role
+            role=role_obj
         )
         publish_event('admin_auth_events', 'user_registered', {
             'username': user.username,
             'email': user.email,
-            'role': user.role
+            'role': user.role.name
         })
         return JsonResponse({
             'message': 'User registered successfully.',
@@ -137,7 +146,7 @@ def register(request):
                 'id': user.id,
                 'username': user.username,
                 'email': user.email,
-                'role': user.role
+                'role': user.role.name if user.role else None
             }
         }, status=201)
     except Exception as e:
@@ -176,7 +185,7 @@ def login(request):
             return JsonResponse({'error': 'Account is disabled.'}, status=403)
             
         # Device limit check (super_admin and admin only allow 4 active devices)
-        if user.role in ['super_admin', 'admin']:
+        if user.role and user.role.name in ['super_admin', 'admin']:
             active_sessions = UserSession.objects.filter(user=user, is_active=True).count()
             if active_sessions >= 4:
                 return JsonResponse({'error': 'Device session limit exceeded. Maximum 4 active devices allowed.'}, status=400)
@@ -197,7 +206,7 @@ def login(request):
                 'id': user.id,
                 'username': user.username,
                 'email': user.email,
-                'role': user.role
+                'role': user.role.name if user.role else None
             }
         })
     else:
@@ -252,6 +261,51 @@ def forgot_password(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Method not allowed.'}, status=405)
     return JsonResponse({'message': 'Reset link dispatched (Stub).'})
+
+@csrf_exempt
+@token_required
+def list_roles(request):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Method not allowed.'}, status=405)
+    roles = Role.objects.all().values('id', 'name', 'display_name', 'description', 'created_at')
+    return JsonResponse({'roles': list(roles)})
+
+@csrf_exempt
+@token_required
+def create_role(request):
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed.'}, status=405)
+    
+    if not request.user.role or request.user.role.name not in ['super_admin', 'admin']:
+        return JsonResponse({'error': 'Permission denied. Only Super Admins or Admins can manage roles.'}, status=403)
+        
+    try:
+        data = json.loads(request.body)
+        name = data.get('name')
+        display_name = data.get('display_name')
+        description = data.get('description', '')
+    except (json.JSONDecodeError, TypeError):
+        return JsonResponse({'error': 'Invalid JSON body.'}, status=400)
+        
+    if not name or not display_name:
+        return JsonResponse({'error': 'name and display_name are required fields.'}, status=400)
+        
+    if Role.objects.filter(name=name).exists():
+        return JsonResponse({'error': f"Role with name '{name}' already exists."}, status=400)
+        
+    try:
+        role = Role.objects.create(name=name, display_name=display_name, description=description)
+        return JsonResponse({
+            'message': 'Role created successfully.',
+            'role': {
+                'id': role.id,
+                'name': role.name,
+                'display_name': role.display_name,
+                'description': role.description
+            }
+        }, status=201)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 def health_check(request):
     return JsonResponse({'status': 'healthy', 'service': 'admin_auth'})
